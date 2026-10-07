@@ -1,0 +1,927 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>쁘띠 바크</title>
+
+<script>
+/* =====================================================================
+   설정 — 선생님이 직접 고칠 수 있는 곳
+   이 영역만 고치면 됩니다. 메모장으로 파일을 열어 값을 바꾸고 저장한 뒤
+   브라우저에서 새로고침하세요.
+   ===================================================================== */
+const SETTINGS = {
+  // 일반 카테고리 목록 — 게임 준비 화면에서 이 중 무작위로 뽑힙니다.
+  // 따옴표와 쉼표 형식만 지키면 자유롭게 넣고 빼도 됩니다. (6개 이상 유지)
+  CATEGORIES: [
+    '동물', '음식', '나라·도시', '직업', '학교에 있는 것',
+    '과일·채소', '운동·스포츠', '식물·꽃', '탈것', '몸의 부분',
+    '옷·신발', '집에 있는 물건', '악기', '과자·간식', '장소·건물',
+    '자연·날씨', '곤충', '바다에 사는 것', '음료', '놀이·게임',
+    '감정을 나타내는 말', '움직임을 나타내는 말', '우리나라 지명', '부엌에 있는 것', '색깔'
+  ],
+
+  // 수학 칸 이름 — "수학 칸 켜기"일 때 6번째 칸에 고정됩니다.
+  MATH_CATEGORY: '수학 용어',
+
+  // 뽑을 자음 — 쌍자음(ㄲ, ㄸ…)은 답이 너무 적어 뺐습니다.
+  CONSONANTS: ['ㄱ','ㄴ','ㄷ','ㄹ','ㅁ','ㅂ','ㅅ','ㅇ','ㅈ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'],
+
+  // 점수 규칙 — 채점 칸을 누를 때마다 유일 → 중복 → 없음 → 유일 순으로 바뀝니다.
+  SCORE: { UNIQUE: 2, DUP: 1, NONE: 0 },
+
+  // 게임 준비 화면의 기본값
+  DEFAULT_TEAMS: 6,      // 모둠 수 (2~8)
+  DEFAULT_ROUNDS: 5,     // 라운드 수
+  DEFAULT_TIME: 90,      // 제한 시간(초)
+  DEFAULT_MATH: true,    // 수학 칸 켜기
+
+  // 라운드 수 상한 — 자음이 14개뿐이고 '다시 뽑기'로 버린 자음도 소진되므로 10이 안전합니다.
+  MAX_ROUNDS: 10,
+
+  // 제한 시간 선택지(초)
+  TIME_OPTIONS: [30, 60, 90, 120, 150, 180],
+
+  // 모둠 색 — 1모둠부터 순서대로. 점수판과 답안지에서 모둠을 구분하는 색입니다.
+  TEAM_COLORS: ['#ff4d6d', '#3a86ff', '#2ec46d', '#ffbe0b', '#9b5de5', '#ff7f11', '#ff70c6', '#2dd4e6'],
+
+  // 효과음 사용 여부 (false로 바꾸면 소리가 아예 나지 않습니다)
+  SOUND: true,
+
+  // 자음 룰렛이 도는 시간(밀리초, 1000 = 1초)
+  ROULETTE_MS: 2600
+};
+</script>
+
+<style>
+  :root {
+    --bg: #17123f;
+    --bg2: #2b1a66;
+    --panel: rgba(255, 255, 255, 0.09);
+    --line: rgba(255, 255, 255, 0.2);
+    --text: #ffffff;
+    --muted: #cfc8ff;
+    --ink: #1c1650;
+    --yellow: #ffd60a;
+    --pink: #ff4fa3;
+    --cyan: #35e0ff;
+    --green: #3ee08f;
+    --orange: #ffa62b;
+    --red: #ff3b5c;
+    --rowh: 7vh;
+  }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+    color: var(--text);
+    background: radial-gradient(ellipse at 50% -15%, #6a45d8 0%, var(--bg2) 38%, var(--bg) 78%);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* 무대 조명 느낌의 은은한 빛줄기 */
+  body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none;
+    background: repeating-conic-gradient(from 0deg at 50% -20%, rgba(255,255,255,0.05) 0deg 6deg, transparent 6deg 18deg);
+  }
+
+  #app { position: fixed; inset: 0; }
+  .screen {
+    position: absolute; inset: 0; display: none;
+    flex-direction: column; align-items: center; justify-content: center;
+    gap: 2.6vh; padding: 4vh 4vw; box-sizing: border-box;
+  }
+  .screen.active { display: flex; }
+
+  button {
+    font-family: inherit; font-weight: 800; font-size: 2.7vh;
+    border: 0; border-radius: 1.4vh; padding: 1.4vh 2.8vh; cursor: pointer;
+    color: var(--ink); background: #fff;
+    box-shadow: 0 0.6vh 0 rgba(0,0,0,0.35);
+    transition: transform .08s, box-shadow .08s, opacity .2s;
+  }
+  button:active:not(:disabled) { transform: translateY(0.4vh); box-shadow: 0 0.2vh 0 rgba(0,0,0,0.35); }
+  button:disabled { opacity: 0.35; cursor: default; }
+  .btn-main { background: var(--yellow); font-size: 3.8vh; padding: 1.8vh 4.5vh; }
+  .btn-pink { background: var(--pink); color: #fff; }
+  .btn-cyan { background: var(--cyan); }
+  .btn-ghost { background: var(--panel); color: #fff; border: 0.2vh solid var(--line); box-shadow: none; }
+
+  .actions { display: flex; gap: 1.6vw; align-items: center; justify-content: center; flex-wrap: wrap; }
+  .hint { margin: 0; font-size: 2.2vh; color: var(--muted); }
+
+  /* ---------- 카테고리 카드 ---------- */
+  .cat-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 1.3vw; width: 100%; max-width: 92vw; }
+  .cat {
+    position: relative; display: flex; align-items: center; justify-content: center;
+    min-height: 11vh; padding: 2vh 0.8vw; box-sizing: border-box;
+    background: #fff; color: var(--ink); border-radius: 1.8vh;
+    font-weight: 900; font-size: 3.3vh; text-align: center; word-break: keep-all; line-height: 1.2;
+    box-shadow: 0 0.7vh 0 rgba(0,0,0,0.3);
+    transition: transform .12s;
+  }
+  .cat .num { position: absolute; top: 0.6vh; left: 1vh; font-size: 1.9vh; color: #7d70d6; }
+  .cat .lock { position: absolute; top: 0.6vh; right: 1vh; font-size: 1.6vh; color: #0b5566; }
+  .cat.math { background: var(--cyan); }
+  .cat.clickable { cursor: pointer; }
+  .cat.clickable:hover { transform: translateY(-0.5vh) rotate(-1deg); }
+  .cat.swap { animation: pop .35s; }
+  #round-cats .cat { font-size: 3.8vh; min-height: 13vh; }
+
+  /* ---------- 게임 준비 ---------- */
+  .logo {
+    margin: 0; font-size: 12vh; font-weight: 900; letter-spacing: 0.02em; line-height: 1.05;
+    color: var(--yellow); transform: rotate(-2deg);
+    text-shadow: 0 0.9vh 0 var(--pink), 0 0 5vh rgba(255, 214, 10, 0.45);
+  }
+  .subtitle { margin: -0.6vh 0 0.6vh; font-size: 2.6vh; color: var(--muted); font-weight: 700; }
+  .options { display: flex; gap: 2.6vw; align-items: center; justify-content: center; flex-wrap: wrap; font-size: 2.8vh; font-weight: 800; }
+  .options label { display: flex; align-items: center; gap: 1vw; }
+  select {
+    font-family: inherit; font-size: 2.8vh; font-weight: 800; color: var(--ink);
+    padding: 0.8vh 1.4vh; border: 0; border-radius: 1vh; background: #fff; cursor: pointer;
+  }
+  .toggle { background: var(--panel); color: #fff; border: 0.2vh solid var(--line); box-shadow: none; }
+  .toggle.on { background: var(--cyan); color: var(--ink); border-color: var(--cyan); }
+  .rule {
+    display: flex; gap: 1.4vw; font-size: 2.4vh; font-weight: 800;
+  }
+  .rule span { padding: 0.6vh 1.6vh; border-radius: 99px; }
+  .rule .r2 { background: var(--green); color: #0b3d24; }
+  .rule .r1 { background: var(--orange); color: #3d2200; }
+  .rule .r0 { background: #4a4470; color: #d9d3ff; }
+  #btn-resume { position: absolute; top: 3vh; right: 3vw; }
+
+  /* ---------- 라운드 ---------- */
+  #screen-round { padding-top: 12vh; }
+  .round-top { position: absolute; top: 3vh; left: 4vw; right: 4vw; display: flex; justify-content: space-between; align-items: center; }
+  .pill { background: var(--panel); border: 0.2vh solid var(--line); border-radius: 99px; padding: 1vh 2.6vh; font-size: 3.2vh; font-weight: 900; }
+  .pill.practice { background: var(--pink); border-color: var(--pink); }
+  .timer { font-size: 10vh; font-weight: 900; font-variant-numeric: tabular-nums; line-height: 1; }
+  .timer.danger { color: var(--red); animation: pulse 1s infinite; }
+  .consonant-wrap { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; width: 100%; gap: 3vw; }
+  .consonant {
+    grid-column: 2;
+    width: 38vh; height: 38vh; box-sizing: border-box;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 29vh; font-weight: 900; line-height: 1; color: var(--ink);
+    background: #fff; border: 1vh solid var(--yellow); border-radius: 4.5vh;
+    box-shadow: 0 1.2vh 0 var(--pink), 0 0 9vh rgba(255, 214, 10, 0.45);
+  }
+  .consonant.spinning { color: #8b7fe0; }
+  .consonant.pop { animation: pop .5s; }
+  #btn-reroll { grid-column: 3; justify-self: start; }
+  .bar { width: 92vw; height: 2.2vh; background: rgba(255,255,255,0.15); border-radius: 99px; overflow: hidden; }
+  #bar-fill { height: 100%; width: 100%; background: linear-gradient(90deg, var(--cyan), var(--yellow)); }
+  .bar.danger #bar-fill { background: var(--red); }
+  .keyhint { position: absolute; left: 1.5vw; bottom: 1.5vh; font-size: 1.8vh; color: var(--muted); opacity: 0.8; }
+
+  .overlay {
+    position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+    background: rgba(23, 18, 63, 0.86); z-index: 20;
+    font-size: 30vh; font-weight: 900; color: var(--yellow);
+    text-shadow: 0 1.2vh 0 var(--pink);
+  }
+  .overlay.show { display: flex; animation: pop .45s; }
+
+  /* ---------- 채점 ---------- */
+  #screen-score { gap: 1.8vh; }
+  .score-head { display: flex; align-items: center; gap: 2vw; }
+  .score-head h2 { margin: 0; font-size: 4.6vh; font-weight: 900; display: flex; align-items: center; gap: 1.2vw; }
+  .glyph { display: inline-flex; align-items: center; justify-content: center; width: 7vh; height: 7vh; background: #fff; color: var(--ink); border-radius: 1.4vh; border: 0.5vh solid var(--yellow); }
+  .past { font-size: 2.2vh; background: var(--orange); color: #3d2200; padding: 0.5vh 1.4vh; border-radius: 99px; }
+  .tabs { display: flex; gap: 0.6vw; }
+  .tab { font-size: 2.1vh; padding: 0.8vh 1.5vh; background: var(--panel); color: #fff; box-shadow: none; border: 0.2vh solid var(--line); }
+  .tab.active { background: var(--yellow); color: var(--ink); border-color: var(--yellow); }
+  #score-table { border-collapse: separate; border-spacing: 0.6vw 0.7vh; font-weight: 900; }
+  #score-table th { font-size: 2.3vh; color: var(--muted); padding: 0 0.3vw; word-break: keep-all; line-height: 1.2; max-width: 10vw; vertical-align: bottom; }
+  #score-table th .thn { display: block; font-size: 1.7vh; opacity: 0.8; }
+  #score-table th.math-th { color: var(--cyan); }
+  .team {
+    font-size: 2.8vh; white-space: nowrap; padding: 0 1.4vw 0 1vw;
+    background: var(--panel); border-radius: 1.2vh; border-left: 1vh solid;
+  }
+  .dot { display: inline-block; width: 1.8vh; height: 1.8vh; border-radius: 50%; margin-right: 0.8vh; vertical-align: middle; }
+  .cell {
+    width: 9vw; height: var(--rowh); padding: 0;
+    font-size: calc(var(--rowh) * 0.55); font-weight: 900; border-radius: 1.2vh;
+  }
+  .v2 { background: var(--green); color: #0b3d24; }
+  .v1 { background: var(--orange); color: #3d2200; }
+  .v0 { background: #4a4470; color: #bdb6ee; box-shadow: 0 0.6vh 0 rgba(0,0,0,0.25); }
+  .sum, .total { font-size: calc(var(--rowh) * 0.55); text-align: center; min-width: 6vw; }
+  .total { color: var(--yellow); }
+  #rank-strip { display: flex; gap: 0.8vw; flex-wrap: wrap; justify-content: center; max-width: 92vw; }
+  .chip { background: var(--panel); border: 0.2vh solid var(--line); border-radius: 99px; padding: 0.6vh 1.6vh; font-size: 2.2vh; font-weight: 800; white-space: nowrap; }
+  .chip b { color: var(--yellow); }
+
+  /* ---------- 최종 순위 ---------- */
+  .final-title { margin: 0; font-size: 7vh; font-weight: 900; color: var(--yellow); text-shadow: 0 0.8vh 0 var(--pink); }
+  #final-list { display: flex; flex-direction: column; gap: 1.2vh; width: 72vw; }
+  .final-row {
+    display: grid; grid-template-columns: 7em 1fr auto; align-items: center; gap: 2vw;
+    background: var(--panel); border: 0.3vh solid var(--line); border-radius: 2vh;
+    padding: 0.8vh 3vh; font-weight: 900;
+    opacity: 0; animation: rise .6s forwards;
+  }
+  .final-row.first { background: rgba(255, 214, 10, 0.18); border-color: var(--yellow); }
+  .final-row .rank { white-space: nowrap; }
+  #screen-final { gap: 2vh; }
+  .final-row .uniq { font-size: 0.5em; color: var(--muted); margin-left: 1.2vw; font-weight: 700; }
+  .final-row .fscore { color: var(--yellow); }
+  #final-note { margin: 0; font-size: 2.2vh; color: var(--muted); }
+
+  /* ---------- 모서리 버튼 ---------- */
+  .corner { position: fixed; right: 1.5vw; bottom: 1.5vh; display: flex; gap: 0.8vw; z-index: 10; }
+  .corner button { font-size: 1.9vh; padding: 0.8vh 1.5vh; background: var(--panel); color: #fff; border: 0.2vh solid var(--line); box-shadow: none; }
+
+  @keyframes pop { 0% { transform: scale(0.6); } 60% { transform: scale(1.08); } 100% { transform: scale(1); } }
+  @keyframes pulse { 50% { transform: scale(1.08); } }
+  @keyframes rise { from { opacity: 0; transform: translateY(3vh); } to { opacity: 1; transform: none; } }
+
+  /* ---------- 답안지 인쇄 ---------- */
+  #print-area { display: none; }
+  @page { size: A4 landscape; margin: 10mm; }
+  @media print {
+    html, body { height: auto; overflow: visible; background: #fff !important; }
+    body::before { display: none; }
+    #app, .corner, .overlay { display: none !important; }
+    #print-area { display: block; color: #000; }
+    .sheet { break-after: page; page-break-after: always; }
+    .sheet:last-child { break-after: auto; page-break-after: auto; }
+  }
+  .sh-head { display: flex; align-items: center; gap: 8mm; margin-bottom: 4mm; }
+  .sh-title { font-size: 18pt; font-weight: 900; }
+  .sh-team {
+    font-size: 20pt; font-weight: 900; border: 2.2mm solid; border-radius: 3mm; padding: 1mm 5mm;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .sh-members { flex: 1; display: flex; align-items: flex-end; gap: 2mm; font-size: 12pt; font-weight: 700; }
+  .sh-members .line { flex: 1; border-bottom: 0.4mm solid #000; height: 7mm; }
+  .sh-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  .sh-table th, .sh-table td { border: 0.4mm solid #000; }
+  .sh-table th {
+    background: #e9e9e9; font-size: 12pt; padding: 2mm 1mm; word-break: keep-all;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .sh-table td.lt { vertical-align: top; }
+  .sh-table .rn { font-size: 9pt; color: #555; padding: 1mm; display: block; }
+  .sh-table .sum-row td { height: 11mm; font-weight: 800; font-size: 12pt; text-align: right; padding-right: 3mm; }
+  .sh-foot { margin-top: 2mm; font-size: 9pt; color: #444; }
+</style>
+</head>
+
+<body>
+<div id="app">
+
+  <!-- ① 게임 준비 -->
+  <section id="screen-setup" class="screen">
+    <button id="btn-resume" class="btn-pink" hidden>▶ 이어하기</button>
+    <h1 class="logo">쁘띠 바크</h1>
+    <p class="subtitle">자음 하나로 채우는 모둠 단어 대결</p>
+
+    <div class="options">
+      <label>모둠 수 <select id="sel-teams"></select></label>
+      <label>라운드 <select id="sel-rounds"></select></label>
+      <label>제한 시간 <select id="sel-time"></select></label>
+      <button id="btn-math" class="toggle"></button>
+    </div>
+
+    <div id="setup-cats" class="cat-row"></div>
+    <div class="actions">
+      <p class="hint">카드를 누르면 다른 카테고리로 바뀌어요</p>
+      <button id="btn-redraw" class="btn-ghost">🎲 카테고리 다시 뽑기</button>
+    </div>
+
+    <div class="rule">
+      <span class="r2">유일한 답 2점</span><span class="r1">겹친 답 1점</span><span class="r0">빈칸·오답 0점</span>
+    </div>
+
+    <div class="actions">
+      <button id="btn-print" class="btn-ghost">🖨 답안지 인쇄</button>
+      <button id="btn-practice" class="btn-cyan">연습 라운드</button>
+      <button id="btn-start" class="btn-main">게임 시작!</button>
+    </div>
+  </section>
+
+  <!-- ② 라운드 -->
+  <section id="screen-round" class="screen">
+    <div class="round-top">
+      <div id="round-label" class="pill"></div>
+      <div id="timer" class="timer">01:30</div>
+    </div>
+
+    <div class="consonant-wrap">
+      <div id="consonant" class="consonant">?</div>
+      <button id="btn-reroll" class="btn-ghost">🔄 다시 뽑기</button>
+    </div>
+
+    <div id="round-cats" class="cat-row"></div>
+    <div id="bar" class="bar"><div id="bar-fill"></div></div>
+
+    <div class="actions">
+      <button id="btn-spin" class="btn-main">🎰 글자 뽑기</button>
+      <button id="btn-go" class="btn-main">▶ 시작</button>
+      <button id="btn-pause" class="btn-ghost">⏸ 일시정지</button>
+      <button id="btn-stop" class="btn-pink">그만! → 채점</button>
+    </div>
+    <div class="keyhint">스페이스: 뽑기·시작·일시정지 &nbsp;|&nbsp; → / PageDown: 다음 단계 (진행 중엔 두 번 누르면 채점)</div>
+  </section>
+
+  <!-- ③ 채점·점수판 -->
+  <section id="screen-score" class="screen">
+    <div class="score-head">
+      <h2 id="score-title"></h2>
+      <div id="round-tabs" class="tabs"></div>
+    </div>
+    <p class="hint">겹친 답·빈칸·오답 칸만 눌러서 낮추세요 &nbsp;(2 → 1 → 0 → 2)</p>
+    <table id="score-table"></table>
+    <div id="rank-strip"></div>
+    <div class="actions"><button id="btn-next" class="btn-main"></button></div>
+  </section>
+
+  <!-- ④ 최종 순위 -->
+  <section id="screen-final" class="screen">
+    <h2 class="final-title">🏆 최종 순위</h2>
+    <div id="final-list"></div>
+    <p id="final-note"></p>
+    <div class="actions">
+      <button id="btn-back-score" class="btn-ghost">점수표 다시 보기</button>
+      <button id="btn-new" class="btn-main">새 게임</button>
+    </div>
+  </section>
+
+  <div id="stop-overlay" class="overlay">그만!</div>
+</div>
+
+<div class="corner">
+  <button id="btn-home" hidden>🏠 처음으로</button>
+  <button id="btn-sound">🔊 소리</button>
+  <button id="btn-full">⛶ 전체 화면</button>
+</div>
+
+<div id="print-area"></div>
+
+<script>
+/* =====================================================================
+   여기부터는 프로그램 본체입니다. 보통은 고칠 필요가 없습니다.
+   ===================================================================== */
+const $ = (id) => document.getElementById(id);
+const STORE_KEY = 'petitbac.game.v1';   // 진행 중 게임 임시 보관용 이름
+const MUTE_KEY = 'petitbac.muted';
+const CAT_COUNT = 6;
+
+// 게임 준비 화면에서 고르는 값
+const setup = {
+  teams: SETTINGS.DEFAULT_TEAMS,
+  rounds: Math.min(SETTINGS.DEFAULT_ROUNDS, SETTINGS.MAX_ROUNDS),
+  time: SETTINGS.DEFAULT_TIME,
+  math: SETTINGS.DEFAULT_MATH,
+  categories: []
+};
+
+let game = null;     // 본게임 — 이것만 임시 보관된다
+let play = null;     // 지금 화면에서 진행 중인 것(본게임 또는 연습 라운드)
+let stage = 'pick';  // 라운드 단계: pick(뽑기 전) → ready(시작 전) → running → paused → done
+let viewRound = 1;   // 채점 화면에서 보고 있는 라운드
+let spinning = false;
+let muted = false;
+const timer = { total: 0, remaining: 0, handle: null, last: 0, lastSec: null };
+
+/* ---------- 작은 도우미 ---------- */
+const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+const pickRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
+const shuffle = (arr) => { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const teamName = (t) => `${t + 1}모둠`;
+const teamColor = (t) => SETTINGS.TEAM_COLORS[t % SETTINGS.TEAM_COLORS.length];
+const formatSeconds = (s) => { const m = Math.floor(s / 60), r = s % 60; return m ? `${m}분${r ? ' ' + r + '초' : ''}` : `${r}초`; };
+const scoreClass = (v) => v === SETTINGS.SCORE.UNIQUE ? 'v2' : v === SETTINGS.SCORE.DUP ? 'v1' : 'v0';
+
+/* ---------- 임시 보관 (새로고침 대비) ----------
+   브라우저 저장소는 막혀 있는 환경도 있어서 모든 읽기·쓰기를 try로 감싼다.
+   막혀 있어도 게임은 그대로 진행되고 '이어하기'만 안 될 뿐이다. */
+function storageGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function storageSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+function storageDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
+function saveGame() { if (game && !game.finished) storageSet(STORE_KEY, JSON.stringify(game)); }
+function saveIfGame() { if (play && play === game) saveGame(); }
+function clearGame() { storageDel(STORE_KEY); }
+function loadGame() {
+  const raw = storageGet(STORE_KEY);
+  if (!raw) return null;
+  try {
+    const g = JSON.parse(raw);
+    return (g && !g.finished && Array.isArray(g.categories) && Array.isArray(g.results)) ? g : null;
+  } catch (e) { return null; }
+}
+
+/* ---------- 효과음 (소리 파일 없이 브라우저가 직접 만든다) ---------- */
+const sound = (() => {
+  let ctx = null;
+  function ac() {
+    if (!ctx) { const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null; ctx = new AC(); }
+    if (ctx.state === 'suspended') ctx.resume();
+    return ctx;
+  }
+  function tone(freq, dur, { type = 'square', vol = 0.12, at = 0 } = {}) {
+    if (muted || !SETTINGS.SOUND) return;
+    const c = ac(); if (!c) return;
+    const t0 = c.currentTime + at;
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(vol, t0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g); g.connect(c.destination);
+    o.start(t0); o.stop(t0 + dur + 0.02);
+  }
+  return {
+    click: () => tone(720, 0.03, { vol: 0.05 }),
+    ding: () => { tone(880, 0.15, { type: 'triangle', vol: 0.22 }); tone(1320, 0.35, { type: 'triangle', vol: 0.22, at: 0.12 }); },
+    go: () => tone(660, 0.25, { type: 'triangle', vol: 0.22 }),
+    tick: () => tone(1000, 0.06, { vol: 0.1 }),
+    alarm: () => [0, 0.35, 0.7].forEach((a) => tone(520, 0.28, { type: 'sawtooth', vol: 0.15, at: a })),
+    fanfare: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, i === 3 ? 0.7 : 0.18, { type: 'triangle', vol: 0.22, at: i * 0.16 }))
+  };
+})();
+
+/* ---------- 화면 전환 ---------- */
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach((s) => s.classList.toggle('active', s.id === 'screen-' + name));
+  $('btn-home').hidden = name === 'setup';
+  if (name === 'setup') { refreshResume(); renderSetup(); }
+}
+
+/* =====================================================================
+   ① 게임 준비
+   ===================================================================== */
+function drawCategories() {
+  const n = setup.math ? CAT_COUNT - 1 : CAT_COUNT;
+  const picks = shuffle(SETTINGS.CATEGORIES).slice(0, n);
+  if (setup.math) picks.push(SETTINGS.MATH_CATEGORY);
+  return picks;
+}
+
+function replaceCategory(i) {
+  if (setup.categories[i] === SETTINGS.MATH_CATEGORY) return; // 수학 칸은 고정
+  const pool = SETTINGS.CATEGORIES.filter((c) => !setup.categories.includes(c)); // 이미 고른 것은 제외
+  if (!pool.length) return;
+  setup.categories[i] = pickRandom(pool);
+  renderSetup(i);
+}
+
+function renderCats(el, cats, clickable, popIndex) {
+  el.innerHTML = cats.map((c, i) => {
+    const isMath = c === SETTINGS.MATH_CATEGORY;
+    const canClick = clickable && !isMath;
+    return `<div class="cat ${isMath ? 'math' : ''} ${canClick ? 'clickable' : ''} ${i === popIndex ? 'swap' : ''}" data-i="${i}">
+      <span class="num">${i + 1}</span>${isMath && clickable ? '<span class="lock">고정</span>' : ''}${esc(c)}</div>`;
+  }).join('');
+}
+
+function renderSetup(popIndex) {
+  $('btn-math').classList.toggle('on', setup.math);
+  $('btn-math').textContent = setup.math ? `✓ 수학 칸 켜짐` : '수학 칸 꺼짐';
+  renderCats($('setup-cats'), setup.categories, true, popIndex);
+}
+
+function refreshResume() {
+  const g = loadGame();
+  const b = $('btn-resume');
+  b.hidden = !g;
+  if (g) b.textContent = `▶ 이어하기 (라운드 ${g.round}/${g.rounds})`;
+}
+
+function fillSelect(sel, values, label, current) {
+  if (!values.includes(current)) values = values.concat(current).sort((a, b) => a - b);
+  sel.innerHTML = values.map((v) => `<option value="${v}" ${v === current ? 'selected' : ''}>${label(v)}</option>`).join('');
+}
+
+function initSetup() {
+  fillSelect($('sel-teams'), range(2, Math.min(8, SETTINGS.TEAM_COLORS.length)), (v) => v + '개', setup.teams);
+  fillSelect($('sel-rounds'), range(1, SETTINGS.MAX_ROUNDS), (v) => v + '라운드', setup.rounds);
+  fillSelect($('sel-time'), SETTINGS.TIME_OPTIONS.slice(), formatSeconds, setup.time);
+  $('sel-teams').onchange = (e) => { setup.teams = Number(e.target.value); };
+  $('sel-rounds').onchange = (e) => { setup.rounds = Number(e.target.value); };
+  $('sel-time').onchange = (e) => { setup.time = Number(e.target.value); };
+  setup.categories = drawCategories();
+}
+
+function newPlay(isPractice) {
+  return {
+    isPractice,
+    teams: setup.teams,
+    rounds: isPractice ? 1 : setup.rounds,
+    time: setup.time,
+    categories: setup.categories.slice(),
+    used: [],          // 이미 나온 자음(다시 뽑기로 버린 것 포함)
+    round: 1,
+    consonant: null,
+    results: [],       // 라운드별 { consonant, grid[모둠][카테고리], touched }
+    phase: 'round',
+    finished: false
+  };
+}
+
+function startGame() {
+  if (loadGame() && !confirm('진행 중인 게임이 있어요.\n지우고 새 게임을 시작할까요?')) return;
+  game = newPlay(false);
+  play = game;
+  saveGame();
+  goRound();
+}
+
+function startPractice() {
+  play = newPlay(true); // 연습은 임시 보관도, 자음 소진도 하지 않는다
+  goRound();
+}
+
+function resumeGame() {
+  game = loadGame();
+  if (!game) { refreshResume(); return; }
+  play = game;
+  if (game.phase === 'score' && game.results[game.round - 1]) { viewRound = game.round; showScore(); }
+  else goRound();
+}
+
+/* ---------- 답안지 인쇄 ---------- */
+function printSheets() {
+  const cats = setup.categories;
+  const rows = setup.rounds + 1; // 맨 위 연습 줄 + 라운드 수
+  const rowH = Math.min(22, 128 / rows).toFixed(1); // A4 가로 한 장에 들어가도록 줄 높이 자동 조절
+  const S = SETTINGS.SCORE;
+  const sheet = (t) => `
+    <section class="sheet">
+      <div class="sh-head">
+        <div class="sh-title">쁘띠 바크 답안지</div>
+        <div class="sh-team" style="border-color:${teamColor(t)}">${teamName(t)}</div>
+        <div class="sh-members">모둠원: <span class="line"></span></div>
+      </div>
+      <table class="sh-table">
+        <colgroup><col style="width:16mm">${cats.map(() => '<col>').join('')}<col style="width:20mm"></colgroup>
+        <thead><tr><th>글자</th>${cats.map((c, i) => `<th>${i + 1}. ${esc(c)}</th>`).join('')}<th>점수</th></tr></thead>
+        <tbody>
+          ${range(0, rows - 1).map((r) => `<tr style="height:${rowH}mm"><td class="lt"><span class="rn">${r === 0 ? '연습' : r}</span></td>${cats.map(() => '<td></td>').join('')}<td></td></tr>`).join('')}
+          <tr class="sum-row"><td colspan="${cats.length + 1}">합계 (연습 줄 제외)</td><td></td></tr>
+        </tbody>
+      </table>
+      <div class="sh-foot">유일한 답 ${S.UNIQUE}점 · 겹친 답 ${S.DUP}점 · 빈칸·오답 ${S.NONE}점</div>
+    </section>`;
+  $('print-area').innerHTML = range(0, setup.teams - 1).map(sheet).join('');
+  window.print();
+}
+
+/* =====================================================================
+   ② 라운드
+   ===================================================================== */
+function goRound() {
+  play.phase = 'round';
+  saveIfGame();
+  stage = play.consonant ? 'ready' : 'pick';
+  resetTimer(play.time);
+  $('round-label').textContent = play.isPractice ? '연습 라운드' : `라운드 ${play.round} / ${play.rounds}`;
+  $('round-label').classList.toggle('practice', play.isPractice);
+  const el = $('consonant');
+  el.textContent = play.consonant || '?';
+  el.classList.remove('spinning', 'pop');
+  renderCats($('round-cats'), play.categories, false);
+  updateRoundButtons();
+  showScreen('round');
+}
+
+function availableConsonants() { return SETTINGS.CONSONANTS.filter((c) => !play.used.includes(c)); }
+
+// 다시 뽑기는 남은 라운드에 쓸 자음이 모자라지 않을 때만 허용한다
+function canReroll() {
+  if (stage !== 'ready' || spinning) return false;
+  return availableConsonants().length >= 1 + (play.rounds - play.round);
+}
+
+function updateRoundButtons() {
+  $('btn-spin').hidden = stage !== 'pick';
+  $('btn-spin').disabled = spinning;
+  $('btn-go').hidden = stage !== 'ready';
+  $('btn-go').disabled = spinning;
+  $('btn-reroll').style.visibility = stage === 'ready' ? 'visible' : 'hidden';
+  $('btn-reroll').disabled = !canReroll();
+  $('btn-pause').hidden = !(stage === 'running' || stage === 'paused');
+  $('btn-pause').textContent = stage === 'paused' ? '▶ 계속' : '⏸ 일시정지';
+  $('btn-stop').hidden = !(stage === 'running' || stage === 'paused');
+}
+
+function spin() {
+  if (spinning) return;
+  const avail = availableConsonants();
+  if (!avail.length) return;
+  const final = pickRandom(avail);
+  const p = play; // 도는 도중 '처음으로'를 누른 경우를 가려내기 위해 기억해 둔다
+  spinning = true;
+  updateRoundButtons();
+  const el = $('consonant');
+  el.classList.remove('pop');
+  el.classList.add('spinning');
+  const t0 = performance.now();
+  let delay = 55;
+  const step = () => {
+    if (play !== p) { spinning = false; return; }
+    el.textContent = pickRandom(SETTINGS.CONSONANTS);
+    sound.click();
+    delay *= 1.09; // 점점 느려지며 멈추는 룰렛
+    if (performance.now() - t0 + delay < SETTINGS.ROULETTE_MS) { setTimeout(step, delay); return; }
+    setTimeout(() => {
+      spinning = false;
+      if (play !== p) return;
+      el.textContent = final;
+      el.classList.remove('spinning');
+      void el.offsetWidth; // 애니메이션 다시 재생
+      el.classList.add('pop');
+      sound.ding();
+      p.consonant = final;
+      p.used.push(final);
+      stage = 'ready';
+      saveIfGame();
+      updateRoundButtons();
+    }, delay);
+  };
+  step();
+}
+
+/* ---------- 타이머 ---------- */
+function resetTimer(sec) {
+  stopInterval();
+  timer.total = sec * 1000;
+  timer.remaining = timer.total;
+  timer.lastSec = null;
+  renderTimer();
+}
+function stopInterval() { if (timer.handle) { clearInterval(timer.handle); timer.handle = null; } }
+
+function startTimer() {
+  if ((stage !== 'ready' && stage !== 'paused') || spinning) return;
+  if (stage === 'ready') sound.go();
+  stage = 'running';
+  timer.last = performance.now();
+  timer.handle = setInterval(tickTimer, 100);
+  updateRoundButtons();
+  renderTimer();
+}
+
+function pauseTimer() {
+  if (stage !== 'running') return;
+  tickTimer();
+  if (stage !== 'running') return; // 마지막 순간에 시간이 다 된 경우
+  stopInterval();
+  stage = 'paused';
+  updateRoundButtons();
+  renderTimer();
+}
+
+function tickTimer() {
+  const now = performance.now();
+  timer.remaining -= now - timer.last;
+  timer.last = now;
+  const sec = Math.ceil(timer.remaining / 1000);
+  if (sec !== timer.lastSec) { timer.lastSec = sec; if (sec <= 10 && sec > 0) sound.tick(); }
+  if (timer.remaining <= 0) { timer.remaining = 0; renderTimer(); finishRound(true); return; }
+  renderTimer();
+}
+
+function renderTimer() {
+  const s = Math.max(0, Math.ceil(timer.remaining / 1000));
+  $('timer').textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  const danger = s <= 10 && (stage === 'running' || stage === 'paused' || stage === 'done');
+  $('timer').classList.toggle('danger', danger);
+  $('bar').classList.toggle('danger', danger);
+  $('bar-fill').style.width = (timer.total ? (timer.remaining / timer.total) * 100 : 100) + '%';
+}
+
+function finishRound(timeUp) {
+  if (stage === 'done') return;
+  stopInterval();
+  stage = 'done';
+  updateRoundButtons();
+  renderTimer();
+  if (timeUp) sound.alarm(); else sound.ding();
+  const p = play;
+  const ov = $('stop-overlay');
+  ov.classList.add('show');
+  setTimeout(() => {
+    ov.classList.remove('show');
+    if (play === p) goScore();
+  }, timeUp ? 1800 : 1000);
+}
+
+/* =====================================================================
+   ③ 채점·점수판
+   ===================================================================== */
+function goScore() {
+  const i = play.round - 1;
+  if (!play.results[i]) {
+    // 기본값은 모든 칸 '유일한 답' — 겹친 답·빈칸만 골라 낮추면 된다
+    play.results[i] = {
+      consonant: play.consonant,
+      grid: range(1, play.teams).map(() => Array(play.categories.length).fill(SETTINGS.SCORE.UNIQUE)),
+      touched: false
+    };
+  }
+  play.phase = 'score';
+  viewRound = play.round;
+  saveIfGame();
+  showScore();
+}
+
+function showScore() { renderScore(); showScreen('score'); }
+
+function teamStats(p) {
+  return range(0, p.teams - 1).map((t) => {
+    let total = 0, uniques = 0;
+    p.results.forEach((r) => {
+      if (!r) return;
+      r.grid[t].forEach((v) => { total += v; if (v === SETTINGS.SCORE.UNIQUE) uniques++; });
+    });
+    return { t, total, uniques };
+  });
+}
+
+// 순위: 총점 → 유일 답(2점 칸) 개수 → 그래도 같으면 공동 순위
+function ranking(p) {
+  const s = teamStats(p).sort((a, b) => b.total - a.total || b.uniques - a.uniques || a.t - b.t);
+  s.forEach((x, i) => {
+    const prev = s[i - 1];
+    x.rank = (prev && prev.total === x.total && prev.uniques === x.uniques) ? prev.rank : i + 1;
+  });
+  return s;
+}
+
+function renderScore() {
+  const p = play;
+  const r = p.results[viewRound - 1];
+  const isPast = !p.isPractice && viewRound < p.round;
+
+  $('score-title').innerHTML =
+    (p.isPractice ? '연습 라운드 채점' : `라운드 ${viewRound} 채점`) +
+    ` <span class="glyph">${esc(r.consonant)}</span>` +
+    (isPast ? ' <span class="past">지난 라운드 수정 중</span>' : '');
+
+  $('round-tabs').innerHTML = p.isPractice ? '' :
+    p.results.map((_, i) => `<button class="tab ${i + 1 === viewRound ? 'active' : ''}" data-r="${i + 1}">${i + 1}R</button>`).join('');
+
+  // 모둠 수가 많을수록 칸 높이를 줄여 한 화면에 들어오게 한다
+  document.documentElement.style.setProperty('--rowh', Math.min(8, 54 / p.teams) + 'vh');
+
+  const stats = teamStats(p);
+  const head = `<tr><th></th>${p.categories.map((c, i) =>
+    `<th class="${c === SETTINGS.MATH_CATEGORY ? 'math-th' : ''}"><span class="thn">${i + 1}</span>${esc(c)}</th>`).join('')}<th>이번</th><th>누적</th></tr>`;
+  const body = range(0, p.teams - 1).map((t) => {
+    const row = r.grid[t];
+    const sum = row.reduce((a, b) => a + b, 0);
+    return `<tr>
+      <td class="team" style="border-left-color:${teamColor(t)}"><span class="dot" style="background:${teamColor(t)}"></span>${teamName(t)}</td>
+      ${row.map((v, c) => `<td><button class="cell ${scoreClass(v)}" data-t="${t}" data-c="${c}">${v}</button></td>`).join('')}
+      <td class="sum">${sum}</td><td class="total">${stats[t].total}</td></tr>`;
+  }).join('');
+  $('score-table').innerHTML = head + body;
+
+  $('rank-strip').innerHTML = ranking(p).map((x) =>
+    `<span class="chip">${x.rank}위 <span class="dot" style="background:${teamColor(x.t)}"></span>${teamName(x.t)} <b>${x.total}</b></span>`).join('');
+
+  const next = $('btn-next');
+  if (p.isPractice) next.textContent = '연습 끝! 준비 화면으로';
+  else if (p.round < p.rounds) next.textContent = `다음 라운드 ▶ (${p.round + 1}/${p.rounds})`;
+  else next.textContent = '🏆 최종 순위';
+}
+
+function cycleCell(t, c) {
+  const S = SETTINGS.SCORE;
+  const order = [S.UNIQUE, S.DUP, S.NONE];
+  const r = play.results[viewRound - 1];
+  const idx = order.indexOf(r.grid[t][c]);
+  r.grid[t][c] = order[(idx + 1) % order.length];
+  r.touched = true;
+  saveIfGame();
+  renderScore();
+}
+
+function nextFromScore() {
+  const p = play;
+  const cur = p.results[p.round - 1];
+  if (!cur.touched && !confirm(`이번 라운드 점수를 하나도 바꾸지 않았어요.\n모든 칸을 ${SETTINGS.SCORE.UNIQUE}점(겹친 답 없음)으로 두고 넘어갈까요?`)) {
+    viewRound = p.round;
+    renderScore();
+    return;
+  }
+  if (p.isPractice) { play = null; showScreen('setup'); return; }
+  if (p.round < p.rounds) { p.round++; p.consonant = null; goRound(); }
+  else showFinal();
+}
+
+/* =====================================================================
+   ④ 최종 순위
+   ===================================================================== */
+function showFinal() {
+  game.finished = true;
+  game.phase = 'final';
+  clearGame(); // 게임이 끝났으니 임시 보관을 지운다
+  renderFinal();
+  showScreen('final');
+  sound.fanfare();
+}
+
+function renderFinal() {
+  const rk = ranking(game);
+  const n = rk.length;
+  const medals = ['🥇', '🥈', '🥉'];
+  const fs = n <= 4 ? 5 : n <= 6 ? 4 : 3.2; // 모둠 수에 맞춰 글자 크기 조절
+  // 꼴찌부터 차례로 나타나고 1위가 마지막에 등장한다
+  $('final-list').innerHTML = rk.map((x, i) => `
+    <div class="final-row ${x.rank === 1 ? 'first' : ''}" style="font-size:${fs}vh; animation-delay:${(n - 1 - i) * 0.5}s">
+      <div class="rank">${x.rank <= 3 ? medals[x.rank - 1] + ' ' : ''}${x.rank}위</div>
+      <div><span class="dot" style="background:${teamColor(x.t)}"></span>${teamName(x.t)}<span class="uniq">유일 답 ${x.uniques}개</span></div>
+      <div class="fscore">${x.total}점</div>
+    </div>`).join('');
+  const tie = rk.some((x, i) => i > 0 && x.total === rk[i - 1].total);
+  $('final-note').textContent = tie ? '총점이 같으면 유일한 답(2점 칸)이 많은 모둠이 앞섭니다. 그것도 같으면 공동 순위예요.' : '';
+}
+
+/* =====================================================================
+   버튼·키보드 연결
+   ===================================================================== */
+function updateMuteButton() { $('btn-sound').textContent = muted ? '🔇 소리 꺼짐' : '🔊 소리'; }
+
+function wire() {
+  $('setup-cats').onclick = (e) => { const card = e.target.closest('.cat.clickable'); if (card) replaceCategory(Number(card.dataset.i)); };
+  $('btn-redraw').onclick = () => { setup.categories = drawCategories(); renderSetup(); };
+  $('btn-math').onclick = () => {
+    setup.math = !setup.math;
+    if (setup.math) setup.categories[CAT_COUNT - 1] = SETTINGS.MATH_CATEGORY;
+    else setup.categories[CAT_COUNT - 1] = pickRandom(SETTINGS.CATEGORIES.filter((c) => !setup.categories.includes(c)));
+    renderSetup(CAT_COUNT - 1);
+  };
+  $('btn-print').onclick = printSheets;
+  $('btn-practice').onclick = startPractice;
+  $('btn-start').onclick = startGame;
+  $('btn-resume').onclick = resumeGame;
+
+  $('btn-spin').onclick = spin;
+  $('btn-reroll').onclick = () => { if (canReroll()) spin(); };
+  $('btn-go').onclick = startTimer;
+  $('btn-pause').onclick = () => (stage === 'paused' ? startTimer() : pauseTimer());
+  $('btn-stop').onclick = () => finishRound(false);
+
+  $('score-table').onclick = (e) => { const b = e.target.closest('.cell'); if (b) cycleCell(Number(b.dataset.t), Number(b.dataset.c)); };
+  $('round-tabs').onclick = (e) => { const b = e.target.closest('.tab'); if (b) { viewRound = Number(b.dataset.r); renderScore(); } };
+  $('btn-next').onclick = nextFromScore;
+
+  $('btn-back-score').onclick = () => { viewRound = game.round; showScore(); };
+  $('btn-new').onclick = () => { game = null; play = null; showScreen('setup'); };
+
+  $('btn-home').onclick = () => {
+    const inGame = play && !play.isPractice && !play.finished;
+    const msg = inGame ? '준비 화면으로 갈까요?\n진행 중인 게임은 "이어하기"로 다시 열 수 있어요.' : '준비 화면으로 갈까요?';
+    if (!confirm(msg)) return;
+    stopInterval();
+    $('stop-overlay').classList.remove('show');
+    stage = 'pick';
+    play = null;
+    showScreen('setup');
+  };
+  $('btn-sound').onclick = () => { muted = !muted; storageSet(MUTE_KEY, muted ? '1' : '0'); updateMuteButton(); };
+  $('btn-full').onclick = () => {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen && document.documentElement.requestFullscreen().catch(() => {});
+    else document.exitFullscreen && document.exitFullscreen();
+  };
+
+  // 마우스로 누른 버튼에 포커스가 남으면 스페이스바가 그 버튼을 또 누르게 되므로 포커스를 뺀다
+  document.addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) b.blur(); });
+
+  // 키보드·프레젠터 리모컨 조작
+  document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'SELECT') return;
+    const isSpace = e.code === 'Space' || e.key === ' ';
+    const isNext = ['ArrowRight', 'ArrowDown', 'PageDown'].includes(e.key);
+    if (!isSpace && !isNext) return;
+    e.preventDefault();
+    const active = document.querySelector('.screen.active');
+    if (!active) return;
+    if (active.id === 'screen-round') {
+      if (spinning || stage === 'done') return;
+      if (stage === 'pick') spin();
+      else if (stage === 'ready') startTimer();
+      else if (stage === 'running') pauseTimer();
+      else if (stage === 'paused') { if (isSpace) startTimer(); else finishRound(false); } // 다음 키 두 번 = 채점
+    } else if (active.id === 'screen-score' && isNext) {
+      nextFromScore();
+    }
+  });
+}
+
+/* ---------- 시작 ---------- */
+muted = storageGet(MUTE_KEY) === '1';
+updateMuteButton();
+initSetup();
+wire();
+showScreen('setup');
+</script>
+</body>
+</html>
